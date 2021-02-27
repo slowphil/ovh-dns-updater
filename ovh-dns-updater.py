@@ -28,7 +28,7 @@ client = ovh.Client()
 
 default_ttl =  600  # seconds 
 # ttl = how long will a DNS server cache the value before checking it at the Registrar. Longer value yields faster name resolution most of the time, but less frequent updates
-
+records_changed = 0 
 # list of hosts (=subdomain.domain.tld) to update, each a dictionnary with at least "domain" and "subdomain" defined
 hosts = [
         { 
@@ -50,22 +50,34 @@ checkDNS_interval_hrs = 12.1 # when the saved IP addresses are old, check the DN
 current_ip_file = "/tmp/current_ip.json" 
 
 
+def send_email(msg, sender = 'no_reply@mydomain.com', receiver = 'admin@mydomain.com')
+  import smtplib
+
+  try :
+     smtpObj = smtplib.SMTP('localhost')
+     smtpObj.sendmail(sender, receiver,
+         "From: {}\nTo: {}\nSubject: DNS Update problem\n\n{}\n".format(sender, receiver, msg)
+         )         
+  except smtplib.SMTPException:
+     print( timestamp()," : Error unable to send email")
+
 def get_current_ip(v = 4):
     url = 'https://api6.ipify.org' if v == 6 else 'https://api.ipify.org'
     try :         
         r = requests.get(url, timeout=5.0)
     except requests.exceptions.RequestException as e:
-        print("failed getting ipv{} address because {} occurred".format(v, str(e)))
+        #print("failed getting ipv{} address because {} occurred".format(v, str(e)))
         return False
     return r.text if r.status_code == requests.codes.ok else False
+    
+def timestamp() :
+    return time.asctime( time.localtime(time.time()) )
 
 def update_record(domain, subdomain, new_ip, _ttl = 600):
-    """
-    Update the (A or AAAA) record with the provided IP
-    """
+    #Update the (A or AAAA) record with the provided IP
 
     typ = 'AAAA' if ":" in new_ip else 'A'
-    print("checking record {} for {}.{}".format(typ,subdomain,domain))
+    #print("checking record {} for {}.{}".format(typ,subdomain,domain))
     path = "/domain/zone/{}/record".format(domain)
     result = client.get(path,
                         fieldType = typ,
@@ -73,7 +85,7 @@ def update_record(domain, subdomain, new_ip, _ttl = 600):
                      )
 
     if len(result) != 1:
-        print("### creating NEW record {} for {}.{}".format(typ,subdomain,domain))
+        #creating NEW record
         result = client.post(path,
                     fieldType = typ,
                     subDomain = subdomain,
@@ -86,27 +98,31 @@ def update_record(domain, subdomain, new_ip, _ttl = 600):
                         subDomain=subdomain
                         )
         record_id = result[0]
+        records_changed += 1
+        print("{} : ### created new record {} for {}.{}".format(timestamp(),typ,subdomain,domain))
     else :
         # record exists
         record_id = result[0]
         path = "/domain/zone/{}/record/{}".format(domain,record_id)
         result = client.get(path)
         oldip = result['target']
-        print('record exists, with ip :',oldip)
+        #print('record exists, with ip :',oldip)
         if oldip == new_ip :
-            print('nothing to do')
+            #print('nothing to do')
             return
         else :
-            print('updating to ', new_ip)
+            #print('updating to ', new_ip)
             result = client.put(path, 
                 subDomain = subdomain, 
                 target = new_ip, 
                 ttl = _ttl
                  )
             client.post('/domain/zone/{}/refresh'.format(domain))
+            records_changed += 1
     #checking changes
     result = client.get("/domain/zone/{}/record/{}".format(domain,record_id))
     if new_ip != result['target'] :
+        records_changed -= 1
         raise Exception("Error updating {}.{} with {}".format(subdomain,domain,new_ip))
         
         
@@ -115,7 +131,7 @@ def delete_record(domain, subdomain, typ):
     if it exists, delete an A or AAAA record  
     (because the corresponding IP is not available)
     """
-    print("checking record {} for {}.{}".format(typ,subdomain,domain))
+    #print("checking record {} for {}.{}".format(typ,subdomain,domain))
     result = client.get("/domain/zone/{}/record".format(domain),
                         fieldType = typ,
                         subDomain = subdomain
@@ -123,9 +139,10 @@ def delete_record(domain, subdomain, typ):
     if len(result) == 1:
         # record exists, delete it
         record_id = result[0]
-        print("### deleting record {} for {}.{}".format(typ,subdomain,domain))
+        print("{} : ### deleting record {} for {}.{}".format(timestamp(),typ,subdomain,domain))
         client.delete("/domain/zone/{}/record/{}".format(domain,record_id))
         client.post('/domain/zone/{}/refresh'.format(domain))
+        records_changed += 1
 
 
 #reload saved values
@@ -133,11 +150,12 @@ try:
     with open(current_ip_file, 'r') as f:
         old_time, old_ipv4, old_ipv6   = json.load(f)
 except IOError:
-    print("No old ips recorded")
+    #print("No old ips recorded")
+    pass
 
 current_ipv4 = get_current_ip(4)
 current_ipv6 = get_current_ip(6)
-print('current ips: {} ; {}'.format(current_ipv4, current_ipv6))
+#print('current ips: {} ; {}'.format(current_ipv4, current_ipv6))
 
 if current_ipv4 or current_ipv6 : #we could get at least one address
   try :
@@ -156,7 +174,8 @@ if current_ipv4 or current_ipv6 : #we could get at least one address
             else :
                 delete_record(domain, subdomain, 'A')
         else :
-            print("Not touching A record for {}.{}, as instructed".format(subdomain, domain))
+            #print("Not touching A record for {}.{}, as instructed".format(subdomain, domain))
+            pass
         if ('ipv6' not in host) or (host['ipv6'] != False) :
             if current_ipv6 :
                 ttl = default_ttl if ('ttl' not in host) else host['ttl']
@@ -164,16 +183,24 @@ if current_ipv4 or current_ipv6 : #we could get at least one address
             else :
                 delete_record(domain, subdomain, 'AAAA')
         else :
-            print("Not touching AAAA record for {}.{}, as instructed".format(subdomain, domain))
-          print ("changed , saving new ips: ",current_ipv4, " ", current_ipv6)
-      #all hosts records have been updated without errors, save current addresses    
+            #print("Not touching AAAA record for {}.{}, as instructed".format(subdomain, domain))
+            pass
+      #all hosts records have been updated without errors, log change and save current addresses
+      print("{} : new addresses {} ; {} -- {} records updates".format(timestamp(), current_ipv4, current_ipv6, records_changed)    
       with open(current_ip_file, 'w') as f:
         json.dump([time.time(), current_ipv4, current_ipv6],f)
-    except Exception as e: #some error occured,
-      print("error updating records :", str(e))
-      pass
+    except Exception as e: #some error occured (API down, keys expired...?),
+      msg = "{} : ### error {} while updating records!! {} records updated with new addresses {} ; {}".format(timestamp(),  str(e), records_changed, current_ipv4, current_ipv6)
+      print(msg)
+      send_email(msg)
+      # not saving new addresses, so that update is attempted again.
   else :
-    print("do nothing")
+    #print("nothing to do!")
+    pass
 else :
-  print("cannot get IPs. Network down? Doing nothing")
+  msg = "{} : cannot get IPs. Network down? ipify.org down?".format(timestamp())
+  print(msg)
+  send_email(msg)
+
+
 
