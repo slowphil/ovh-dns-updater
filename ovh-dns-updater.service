@@ -1,0 +1,13 @@
+[Unit]
+Description=Check DNS records at OVH
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -u /absolute/path/to/ovh-dns-udater.py
+#StandardOutput=journal+console
+StandardOutput=file:/var/log/foo/stdout
+StandardError=file:/var/log/foo/stderr
+
+

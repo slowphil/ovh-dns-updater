@@ -1,0 +1,10 @@
+[Unit]
+Description=run ovh-dns-updater periodically
+
+[Timer]
+OnBootSec=180
+OnUnitActiveSec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target
