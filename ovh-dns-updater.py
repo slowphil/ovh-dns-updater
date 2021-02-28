@@ -67,7 +67,8 @@ def send_email(msg, sender = 'no_reply@mydomain.com', receiver = 'admin@mydomain
      print( timestamp()," : Error unable to send email")
 
 def get_current_ip(v = 4):
-    url = 'https://api6.ipify.org' if v == 6 else 'https://api.ipify.org'
+    #url = 'https://api6.ipify.org' if v == 6 else 'https://api.ipify.org' #frequent error on ipv6 https://github.com/rdegges/ipify-api/issues/54
+    url = 'https://v{}.ident.me'.format(v)
     try :
         r = requests.get(url, timeout=5.0)
     except requests.exceptions.RequestException as e:
@@ -82,10 +83,10 @@ def get_current_ip(v = 4):
     if r.status_code == requests.codes.ok :
         return r.text
     elif v in ip_versions_required :
-            message = "{} : Cannot get required IPv{} : requests.get returned status_code {}. Failing".format(timestamp(), v, r.status_code)
-            print(message)
-            send_email (message)
-            quit()
+        message = "{} : Cannot get required IPv{} : requests.get returned status_code {}. Failing".format(timestamp(), v, r.status_code)
+        print(message)
+        send_email (message)
+        quit()
     else :
         return False
 
