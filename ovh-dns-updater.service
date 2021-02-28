@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 -u /absolute/path/to/ovh-dns-udater.py
+ExecStart=/usr/bin/python3 -u /absolute/path/to/ovh-dns-updater.py
 #StandardOutput=journal+console
 StandardOutput=file:/var/log/foo/stdout
 StandardError=file:/var/log/foo/stderr
