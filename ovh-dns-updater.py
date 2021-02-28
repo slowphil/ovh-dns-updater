@@ -79,7 +79,7 @@ def get_current_ip(v = 4):
             quit()
         else :
             return False
-    if r.status_code == requests.codes.ok 
+    if r.status_code == requests.codes.ok :
         return r.text
     elif v in ip_versions_required :
             message = "{} : Cannot get required IPv{} : requests.get returned status_code {}. Failing".format(timestamp(), v, r.status_code)
