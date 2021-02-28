@@ -24,11 +24,16 @@ can be provided in variety of ways:
 -or in a ovh.conf file
 in which cases we can call with no argument (the ovh module gets the credentials on its own):
 '''
-client = ovh.Client() 
+client = ovh.Client()
+
+# Should missing IP address being considered as error (Depend on the ISP, internet box settings...)?
+# In case a required IP cannot be obtained, the script will send an email and stop without updating anything. 
+# If, for any reason, IPv4 or IPv6 address cannot be obtained and if it is not protected by this list, the corresponding records will be deleted for all hosts.
+ip_versions_required = [4] # MUST not be empty. Can be [4],[6] or [4,6] 
 
 default_ttl =  600  # seconds
 # ttl = how long will a DNS server cache the value before checking it at the Registrar. Longer value yields faster name resolution most of the time, but less frequent updates
-records_changed = 0
+
 # list of hosts (=subdomain.domain.tld) to update, each a dictionnary with at least "domain" and "subdomain" defined
 hosts = [
         {
@@ -56,7 +61,7 @@ def send_email(msg, sender = 'no_reply@mydomain.com', receiver = 'admin@mydomain
   try :
      smtpObj = smtplib.SMTP('localhost')
      smtpObj.sendmail(sender, receiver,
-         "From: {}\nTo: {}\nSubject: DNS Update problem\n\n{}\n".format(sender, receiver, msg)
+         "From: {}\nTo: {}\nSubject: DNS update problem\n\nThe ovh-dns-updater.py script reports:\n{}\n".format(sender, receiver, msg)
          )
   except smtplib.SMTPException:
      print( timestamp()," : Error unable to send email")
@@ -67,8 +72,22 @@ def get_current_ip(v = 4):
         r = requests.get(url, timeout=5.0)
     except requests.exceptions.RequestException as e:
         #print("failed getting ipv{} address because {} occurred".format(v, str(e)))
+        if v in ip_versions_required :
+            message = "{} : Cannot get required IPv{} because {} occurred. Failing".format(timestamp(), v, e)
+            print(message)
+            send_email (message)
+            quit()
+        else :
+            return False
+    if r.status_code == requests.codes.ok 
+        return r.text
+    elif v in ip_versions_required :
+            message = "{} : Cannot get required IPv{} : requests.get returned status_code {}. Failing".format(timestamp(), v, r.status_code)
+            print(message)
+            send_email (message)
+            quit()
+    else :
         return False
-    return r.text if r.status_code == requests.codes.ok else False
 
 def timestamp() :
     return time.asctime( time.localtime(time.time()) )
@@ -145,62 +164,53 @@ def delete_record(domain, subdomain, typ):
         records_changed += 1
 
 
-#reload saved values
-try:
-    with open(current_ip_file, 'r') as f:
-        old_time, old_ipv4, old_ipv6   = json.load(f)
-except IOError:
-    #print("No old ips recorded")
-    pass
-
 current_ipv4 = get_current_ip(4)
 current_ipv6 = get_current_ip(6)
 #print('current ips: {} ; {}'.format(current_ipv4, current_ipv6))
 
-if current_ipv4 or current_ipv6 : #we could get at least one address
-  try :
+#reload saved values & compare
+try:
+    with open(current_ip_file, 'r') as f:
+        old_time, old_ipv4, old_ipv6   = json.load(f)
     need_update = (old_ipv4 != current_ipv4) or (old_ipv6 != current_ipv6) or ((old_time - time.time()) > 3600.0 * checkDNS_interval_hrs)
-  except : #old values do not exist, we must check the records
+except IOError:
+    #print("No old ips recorded")
     need_update = True
-  if need_update :
-    try :
-      for host in hosts :
-        domain = host["domain"]
-        subdomain = host ["subdomain"]
-        if ('ipv4' not in host) or (host['ipv4'] != False) :
-            if current_ipv4 :
-                ttl = default_ttl if ('ttl' not in host) else host['ttl']
-                update_record(domain, subdomain, current_ipv4, _ttl = ttl)
-            else :
-                delete_record(domain, subdomain, 'A')
-        else :
-            #print("Not touching A record for {}.{}, as instructed".format(subdomain, domain))
-            pass
-        if ('ipv6' not in host) or (host['ipv6'] != False) :
-            if current_ipv6 :
-                ttl = default_ttl if ('ttl' not in host) else host['ttl']
-                update_record(domain, subdomain, current_ipv6, _ttl = ttl)
-            else :
-                delete_record(domain, subdomain, 'AAAA')
-        else :
-            #print("Not touching AAAA record for {}.{}, as instructed".format(subdomain, domain))
-            pass
-      #all hosts records have been updated without errors, log change and save current addresses
-      print("{} : new addresses {} ; {} -- {} records updates".format(timestamp(), current_ipv4, current_ipv6, records_changed))
-      with open(current_ip_file, 'w') as f:
-        json.dump([time.time(), current_ipv4, current_ipv6],f)
-    except Exception as e: #some error occured (API down, keys expired...?),
-      msg = "{} : ### error {} while updating records!! {} records updated with new addresses {} ; {}".format(timestamp(),  str(e), records_changed, current_ipv4, current_ipv6)
-      print(msg)
-      send_email(msg)
-      # not saving new addresses, so that update is attempted again.
-  else :
-    #print("nothing to do!")
-    pass
+if need_update :
+  records_changed = 0
+  try :
+    for host in hosts :
+      domain = host["domain"]
+      subdomain = host ["subdomain"]
+      if ('ipv4' not in host) or (host['ipv4'] != False) :
+          if current_ipv4 :
+              ttl = default_ttl if ('ttl' not in host) else host['ttl']
+              update_record(domain, subdomain, current_ipv4, _ttl = ttl)
+          else :
+              delete_record(domain, subdomain, 'A')
+      else :
+          #print("Not touching A record for {}.{}, as instructed".format(subdomain, domain))
+          pass
+      if ('ipv6' not in host) or (host['ipv6'] != False) :
+          if current_ipv6 :
+              ttl = default_ttl if ('ttl' not in host) else host['ttl']
+              update_record(domain, subdomain, current_ipv6, _ttl = ttl)
+          else :
+              delete_record(domain, subdomain, 'AAAA')
+      else :
+          #print("Not touching AAAA record for {}.{}, as instructed".format(subdomain, domain))
+          pass
+    #all hosts records have been updated without errors, log change and save current addresses
+    print("{} : new addresses {} ; {} -- {} records updates".format(timestamp(), current_ipv4, current_ipv6, records_changed))
+    with open(current_ip_file, 'w') as f:
+      json.dump([time.time(), current_ipv4, current_ipv6],f)
+  except Exception as e: #some error occured (API down, keys expired...?),
+    msg = "{} : ### error {} while updating records!! {} records updated with new addresses {} ; {}".format(timestamp(),  str(e), records_changed, current_ipv4, current_ipv6)
+    print(msg)
+    send_email(msg)
+    # not saving new addresses, so that update is attempted again.
 else :
-  msg = "{} : cannot get IPs. Network down? ipify.org down?".format(timestamp())
-  print(msg)
-  send_email(msg)
-
+  #print("nothing to do!")
+  pass
 
 
