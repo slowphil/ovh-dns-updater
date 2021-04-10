@@ -96,6 +96,7 @@ def timestamp() :
 def update_record(domain, subdomain, new_ip, _ttl = 600):
     #Update the (A or AAAA) record with the provided IP
 
+    global records_changed
     typ = 'AAAA' if ":" in new_ip else 'A'
     #print("checking record {} for {}.{}".format(typ,subdomain,domain))
     path = "/domain/zone/{}/record".format(domain)
@@ -152,6 +153,7 @@ def delete_record(domain, subdomain, typ):
     (because the corresponding IP is not available)
     """
     #print("checking record {} for {}.{}".format(typ,subdomain,domain))
+    global records_changed
     result = client.get("/domain/zone/{}/record".format(domain),
                         fieldType = typ,
                         subDomain = subdomain
