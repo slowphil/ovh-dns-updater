@@ -67,26 +67,30 @@ def send_email(msg, sender = 'no_reply@mydomain.com', receiver = 'admin@mydomain
      print( timestamp()," : Error unable to send email")
 
 def get_current_ip(v = 4):
-    #url = 'https://api6.ipify.org' if v == 6 else 'https://api.ipify.org' #frequent error on ipv6 https://github.com/rdegges/ipify-api/issues/54
-    url = 'https://v{}.ident.me'.format(v)
-    try :
-        r = requests.get(url, timeout=5.0)
-    except requests.exceptions.RequestException as e:
-        #print("failed getting ipv{} address because {} occurred".format(v, str(e)))
-        if v in ip_versions_required :
-            message = "{} : Cannot get required IPv{} because {} occurred. Failing".format(timestamp(), v, e)
+    if v == 4 :
+        url_list = ["https://api.ipify.org", "https://ipv4.lafibre.info/ip.php", "https://v4.ident.me"]
+    else :
+        url_list = ["https://api6.ipify.org", "https://ipv6.lafibre.info/ip.php", "https://v6.ident.me"]
+    ip = ""
+    message = ""
+    for url in url_list :
+        try :
+            r = requests.get(url, timeout=30.0)
+        except requests.exceptions.RequestException as e:
+            message += "failed getting ipv{} address from {} because {} occurred\n".format(v, url, str(e))
+            continue
+        if r.status_code == requests.codes.ok :
+            ip = r.text
+            break
+        else : 
+            message += "{} : Cannot get IPv{} from {}: requests.get returned status_code {}.\n".format(timestamp(), v, url, r.status_code)
+    if ip != "":
+        return ip
+    elif v in ip_versions_required :
+            message += "Failed getting required IPv{}. There is most likely a real connectivity problem. Aborting". format( v)
             print(message)
             send_email (message)
             quit()
-        else :
-            return False
-    if r.status_code == requests.codes.ok :
-        return r.text
-    elif v in ip_versions_required :
-        message = "{} : Cannot get required IPv{} : requests.get returned status_code {}. Failing".format(timestamp(), v, r.status_code)
-        print(message)
-        send_email (message)
-        quit()
     else :
         return False
 
